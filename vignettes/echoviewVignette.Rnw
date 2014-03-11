@@ -1,0 +1,292 @@
+\documentclass{article}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+<<label=loadStuff>>=
+library(RDCOMClient)
+@
+Establish a connection to Echoview
+<<label=connectEV>>=
+EVAppObj=COMCreate('EchoviewCom.EvApplication')
+@
+Set global variables:
+<<label=globVarSet>>=
+wdEV='f:\\BROKE-West\\EV5dot4\\'
+rawFileDir='f:\\BROKE-West\\RAW\\'
+@
+\section{Open and close multiple Echoview files}
+We start by getting a vector of Echoview (.EV) filenames:
+<<label=getEVfn>>=
+fnEVVec=list.files(wdEV,pattern="ev",full.names=TRUE)
+@
+This gives us a vector with \Sexpr{length(fnEVVec)} elements.  We will loop over \texttt{fnEVVec} and open, save, and close each EV file thereby updating each .EV file to the currently installed Echoview version:
+<<label=loopOverFiles>>=
+EVLog=vector()
+for(i in 1:length(fnEVVec)){
+  message('Starting work on file ', i, '=  ',fnEVVec[i])
+  opens=EVOpenFile(EVAppObj,fileName=fnEVVec[i])
+  EVFile=opens$EVfile
+  EVLog=c(EVLog,opens$msg)
+  
+  
+  
+  EVLog=c(EVLog,EVSaveFile(EVFile)$msg)
+  EVLog=c(EVLog,EVCloseFile(EVFile)$msg)
+}  
+  
+  #paths=  EVfile$Properties()$DataPaths()
+  #paths$Insert(rawFileDir,1)
+  #EVfile=EVAppObj$OpenFile(fnEVVec[i])
+  #Sys.sleep(10)
+  #EVfile$Close()
+  
+}
+
+
+
+@
+\section{Populate an Echoview template}
+
+<<>>= ### fix exclusions before populating template.
+
+allPathAndFnList=dget("f:/broke-west/fileList.robj")
+msgV=vector(mode='character')
+for(i in 1:length(allPathAndFnList)){
+  message('File group ',i)
+  msgV=c(msgV,EVcreateNew(EVAppObj=EVAppObj,
+              templateFn="c:\\Program Files (x86)\\Myriax\\Echoview\\Echoview5\\Templates\\BROKE-West-5dot4-swarmsR1.EV",
+              EVOpDir="f:\\BROKE-West\\EV5dot4\\", 
+              EVOpFn=names(allPathAndFnList)[i],
+              filesetName="38H-120H-200H",
+              dataFiles=allPathAndFnList[[i]])$msg)
+} #end of i loop - populate EV files.
+
+@
+
+<<label=regions>>=
+EVLog=vector()
+fnEVVec=list.files(wdEV,pattern="ev",full.names=TRUE)
+
+##REGIONS
+#get file list of all region definitions
+regionDir="F:\\BROKE-West\\regions\\"
+regionFiles=list.files(regionDir)
+fnPointerVec=unlist(strsplit(regionFiles,split="\\+"))
+fnPointerVec=fnPointerVec[seq(1,(length(fnPointerVec)-1),2)]
+for(i in 1:length(fnEVVec)){
+  message("Starting work on ",fnEVVec[i])
+  #get current regions
+  cfn=strsplit(fnEVVec[i],split="\\\\")[[1]][4]
+  cfn=strsplit(cfn,split='\\.')[[1]][1]
+  currentRegionFnVec=regionFiles[which(fnPointerVec==cfn)]
+  #open the EV file
+  opens=EVOpenFile(EVAppObj,fileName=fnEVVec[i])
+  EVFile=opens$EVFile
+  EVLog=c(EVLog,opens$msg)
+  
+  regionsObj=EVFile[["Regions"]]
+  for(j in 1:length(currentRegionFnVec))
+    regionsObj$Import(paste(regionDir,currentRegionFnVec[j],sep=""))
+  
+ EVLog=c(EVLog,EVSaveFile(EVFile)$msg)
+  EVLog=c(EVLog,EVCloseFile(EVFile)$msg)
+}#end i  
+@
+\section{Add GPS files}
+<<label=addGPSFiles>>=
+EVLog=vector()
+#add GPS files
+gpsDatDir="F:\\BROKE-West\\BROKE-West_hydroacoustic_dataset\\4_Ancillary-data\\4.3_Supplementary_GPS_data\\"
+GPSInfo=dget("F:/broke-west/fileListGPS.robj")
+addGPSpointer=which(unlist(GPSInfo)!="inclInRAW")
+namesGPSpointer=names(addGPSpointer)
+GPSfiles=list.files(gpsDatDir)
+
+for(i in 1:length(addGPSpointer))
+{
+  message("Starting work on ",fnEVVec[addGPSpointer[i]])
+  #open the EV file
+  opens=EVOpenFile(EVAppObj,fileName=fnEVVec[addGPSpointer[i]])
+  EVFile=opens$EVFile
+  EVLog=c(EVLog,opens$msg)
+  fileSetsObj=EVFile[["Filesets"]]
+  fileSet=fileSetsObj$FindByName("GPS")
+  
+  dataFiles=fileSet[["DataFiles"]] #EvDataFile object
+  
+  nbrOfDataFiles=dataFiles$Count()
+  if(nbrOfDataFiles>0){warning(fnEVVec[i], " already has GPS data")}else{
+    cfn=strsplit(fnEVVec[addGPSpointer[i]],split="\\\\")[[1]][4]
+    cfn=strsplit(cfn,split='\\.')[[1]][1]
+    cfn=strsplit(cfn,split='_')[[1]][1]
+    gpsFnDir=paste(gpsDatDir,cfn,".gps.csv",sep="")
+    dataFiles$Add(gpsFnDir)
+  }
+   EVLog=c(EVLog,EVSaveFile(EVFile)$msg)
+  EVLog=c(EVLog,EVCloseFile(EVFile)$msg)
+}
+@
+
+\section{Schools detection}
+
+<<label=schoolsDetect>>=
+EVLog=vector()
+swarmDir='F:\\BROKE-West\\2014swarmsMinThres-080\\'
+varsToExport=c('38H hrp 0 to 250 m','120H hrp 0 to 250 m','200H hrp 0 to 250 m')
+varDetSchool='120H hrp 7x7 convolution'
+minThres=-80
+for(i in 1:length(fnEVVec)){
+  message("Starting work on ",fnEVVec[i])
+  opens=EVOpenFile(EVAppObj,fileName=fnEVVec[i])
+  EVFile=opens$EVFile
+  EVLog=c(EVLog,opens$msg)
+  
+schDet<-EVSchoolsDetect(EVFile=EVFile,
+  acoVarName=varDetSchool,
+  outputRegionClassName='krill_swarm',
+  deleteExistingRegions=TRUE,
+  distanceMode="GPS distance",
+  maximumHorizontalLink=15,#m
+  maximumVerticalLink=5,#m
+  minimumCandidateHeight=1,#m
+  minimumCandidateLength=10,#m
+  minimumSchoolHeight=2,#m
+  minimumSchoolLength=15, #m
+  dataThreshold=-70)
+  EVLog=c(EVLog,schDet$msg)
+ EVLog=c(EVLog,EVSaveFile(EVFile)$msg)
+
+
+  #export integration by regions csv:
+  cfn=strsplit(fnEVVec[i],split="\\\\")[[1]][4]
+  cfn=strsplit(cfn,split='\\.')[[1]][1]
+  for(j in 1:length(varsToExport)){
+    exportFn<-paste(swarmDir,cfn,'+',varsToExport[j],'.csv',sep='')
+    msg<-EVIntegrationByRegionsExport(EVFile=EVFile,acoVarName=varsToExport[j],
+                             regionClassName='krill_swarm',
+                             exportFn=exportFn,dataThreshold=minThres)$msg
+    EVLog=c(EVLog,msg)
+  } #end j
+  EVLog=c(EVLog,EVCloseFile(EVFile)$msg)  
+} #end i
+@
+
+After running schools detection we return the minimum threshold value to its pre-schools detection state:
+<<label=resetDet>>=
+thresFlag=schDet$thresholdData$thresholdData$thresholdSettings$preThresApplyFlag
+thresFlag=ifelse(is.null(thresFlag),FALSE,TRUE)
+
+if(thresFlag) 
+  thresVal=schDet$thresholdData$thresholdData$thresholdSettings$preThresApplyFlag
+@
+<<>>=
+#schools analysis
+#set schools detection settings:
+schoolExportDir="c:\\BROKE-West\\20130408-BROKE-swarm\\"
+schoolRegionDir="c:\\BROKE-West\\20130408-BROKE-swarm-regions\\"
+
+#Tarling et al (2009) DSRI settings=
+schoolVec=data.frame(
+  acousticVarName=
+  distanceMode="GPS distance",
+  maximumHorizontalLink=15,#m
+  maximumVerticalLink=5,#m
+  minimumCandidateHeight=1,#m
+  minimumCandidateLength=10,#m
+  minimumSchoolHeight=2,#m
+  minimumSchoolLength=15, #m
+  dataThreshold=-70 ) #dB re 1m^-1
+
+#cox et al 2011 ICES settings
+schoolVec=data.frame(DistanceMode="GPS distance",
+                     MaximumHorizontalLink=40,#m
+                     MaximumVerticalLink=10,#m
+                     MinimumCandidateHeight=10,#m
+                     MinimumCandidateLength=30,#m
+                     MinimumSchoolHeight=10,#m
+                     MinimumSchoolLength=30, #m
+                     dataThreshold=-80 ) #dB re 1m^-1
+@
+
+\section{Region time extraction}
+
+<<label=regionTimeExtraction>>=
+library(lubridate)
+regionClassToFind='Off transect - allH'
+outputFN='F:\\BROKE-West\\missingness\\noise-regions.csv'
+
+EVLog=vector()
+#data to keep
+EVName=regionClassName=regionName=startTimeStamp=endTimeStamp=vector()
+
+for(i in 1:length(fnEVVec)){
+  message('Starting work on file ', i, '=  ',fnEVVec[i])
+  opens=EVOpenFile(EVAppObj,fileName=fnEVVec[i])
+  EVFile=opens$EVFile
+  EVLog=c(EVLog,opens$msg)
+  
+  regions=EVFile[['Regions']]
+
+  for(j in 0:(regions$Count()-1)){
+    cRegion=regions$Item(j)
+    cregionClassName=cRegion[['RegionClass']]$Name()
+    if(cregionClassName==regionClassToFind)
+    {
+      sTimeStamp=as.numeric(cRegion$StartTime())
+      sDate=as.Date(sTimeStamp,origin = "1899-12-30")
+      second(sDate)<-ddays(sTimeStamp-floor(sTimeStamp))
+      eTimeStamp=as.numeric(cRegion$EndTime())
+      eDate=as.Date(eTimeStamp,origin = "1899-12-30")
+      second(eDate)<-ddays(eTimeStamp-floor(eTimeStamp))
+      #store data
+      EVName=append(EVName,fnEVVec[i])
+      regionClassName=append(regionClassName,cregionClassName)
+      regionName=append(regionName,cRegion$Name())
+      startTimeStamp=append(startTimeStamp,as.character(sDate))
+      endTimeStamp=append(endTimeStamp,as.character(eDate))
+    } #end if statement
+    
+  } #end j loop
+   EVLog=c(EVLog,EVCloseFile(EVFile)$msg)
+  out=data.frame(EVName,regionClassName,regionName,startTimeStamp,endTimeStamp)
+  write.csv(out,outputFN,row.names=FALSE)
+} #end of i loop.
+@
+
+
+<<label=startAndEndEVtimes>>=
+outputFN='F:\\BROKE-West\\missingness\\segment-start-end-times.csv'
+filesetName="38H-120H-200H"
+EVLog=vector()
+#data to keep
+EVName=startTimeStamp=endTimeStamp=vector()
+
+for(i in 1:length(fnEVVec)){
+  message('Starting work on file ', i, '=  ',fnEVVec[i])
+  opens=EVOpenFile(EVAppObj,fileName=fnEVVec[i])
+  EVFile=opens$EVFile
+  EVLog=c(EVLog,opens$msg)
+
+ fileset=EVFile[["Filesets"]]$FindByName(filesetName)
+  sTimeStamp=as.numeric(fileset$StartTime())
+  sDate=as.Date(sTimeStamp,origin = "1899-12-30")
+  second(sDate)<-ddays(sTimeStamp-floor(sTimeStamp))
+  
+  eTimeStamp=as.numeric(fileset$EndTime())
+  eDate=as.Date(eTimeStamp,origin = "1899-12-30")
+  second(eDate)<-ddays(eTimeStamp-floor(eTimeStamp))
+  
+  EVName=append(EVName,fnEVVec[i])
+  startTimeStamp=append(startTimeStamp,as.character(sDate))
+  endTimeStamp=append(endTimeStamp,as.character(eDate))
+  
+  EVLog=c(EVLog,EVCloseFile(EVFile)$msg)
+  
+  out=data.frame(EVName, startTimeStamp,endTimeStamp)
+  write.csv(out,outputFN,row.names=FALSE)
+} #end ith for loop
+
+@
+
+\end{document}
