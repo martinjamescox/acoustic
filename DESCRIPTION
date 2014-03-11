@@ -1,9 +1,10 @@
 Package: acoustic
 Type: Package
-Title: What the package does (short line)
+Title: Active hydroacoustic data processing
 Version: 1.0
 Date: 2014-01-08
-Author: Who wrote it
-Maintainer: Who to complain to <yourfault@somewhere.net>
-Description: More about what it does (maybe more than one line)
-License: What license is it under?
+Author: Martin J. Cox Michael Sumner Lisa-Marie Harrison
+Maintainer: Michael Sumner <acoustic@gmail.com>
+Depends: RDCOMClient, lubridate
+Description: Utilities for the processing, manipulation and synthesis of active hydroacoustic data.
+License: GPL2
