@@ -600,3 +600,247 @@ msDATEConversion=function(dateObj){
   second(eDate)<-ddays(eTimeStamp-floor(eTimeStamp))
   return(eDate)
 }
+
+#' Adds a calibration file (.ecs) to a fileset using COM scripting
+#' 
+#' This function adds a calibration file (.ecs) to a fileset using COM scripting
+#' @param EVFile An Echoview file COM object
+#' @param filesetName An Echoview fileset name
+#' @param calibrationFile An Echoview calibration (.ecs) file path and name
+#' @return a list object with one element. $msg: message for processing log
+#' @keywords Echoview COM scripting
+#' @export
+#' @references \url{http://support.echoview.com/WebHelp/Echoview.htm/}
+#' @examples
+#' \dontrun{
+#'EVAppObj=COMCreate('EchoviewCom.EvApplication')
+#'EVFile=EVOpenFile(EVAppObj,'~\\example1.EV')$EVFile
+#'EVAddCalibrationFile(EVFile=EVFile,filesetName='example',calibrationFile='calibration_file.ecs')
+#'}
+
+EVAddCalibrationFile <- function(EVFile, filesetName, calibrationFile){
+  
+  destination.fileset = EVFindFilesetByName(EVFile, filesetName)$fileset
+  destination.fileset$SetCalibrationFile(calibrationFile)  
+  
+  msg = paste(Sys.time(), ' : Adding ', calibrationFile,' to fileset name ', filesetName, sep = '')
+  message(msg)
+  
+}
+
+#' Finds names of all .raw files in a fileset using COM scripting
+#' 
+#' This function returns the names of all .raw files in a fileset using COM scripting
+#' @param EVFile An Echoview file COM object
+#' @param filesetName An Echoview fileset name
+#' @return A character vector containing the names of all .raw files in the fileset 
+#' @keywords Echoview COM scripting
+#' @export
+#' @references \url{http://support.echoview.com/WebHelp/Echoview.htm/}
+#' @examples
+#' \dontrun{
+#'EVAppObj=COMCreate('EchoviewCom.EvApplication')
+#'EVFile=EVOpenFile(EVAppObj,'~\\example1.EV')$EVFile
+#'file.names=EVFilesInFileset(EVFile=EVFile,filsetName='example'))
+#'}
+
+EVFilesInFileset = function(EVFile, filesetName){
+  
+  fileset.loc = EVFindFilesetByName(EVFile, filesetName)$filesetObj
+  nbr.of.raw.in.fileset.pre = fileset.loc[["DataFiles"]]$Count()
+  
+  raw.names <- 0
+  for(i in 0:(nbr.of.raw.in.fileset.pre - 1)){
+    raw.names[i + 1] <- basename(fileset.loc[["DataFiles"]]$Item(i)$FileName())
+  }
+  
+  msg = paste(Sys.time(),' : Returned names for ', nbr.of.raw.in.fileset.pre, ' data files in fileset ', filesetName ,sep = '')
+  message(msg)
+  return(raw.names)
+  
+}
+
+
+#' Clears all files from a fileset using COM scripting
+#' 
+#' This function clears all .raw files from a fileset using COM scripting
+#' @param EVFile An Echoview file COM object
+#' @param filesetName An Echoview fileset name
+#' @return A list object with one element. $msg message for processing log
+#' @keywords Echoview COM scripting 
+#' @export
+#' @references \url{http://support.echoview.com/WebHelp/Echoview.htm/}
+#' @examples
+#' \dontrun{
+#'EVAppObj=COMCreate('EchoviewCom.EvApplication')
+#'EVFile=EVOpenFile(EVAppObj,'~\\example1.EV')$EVFile
+#'EVClearRawData(EVFile=EVFile,filesetName='example')
+#'}
+
+EVClearRawData = function(EVFile,filesetName){
+  
+  destination.fileset = EVFindFilesetByName(EVFile,filesetName)$filesetObj
+  
+  nbr.of.raw.in.fileset = destination.fileset[["DataFiles"]]$Count()
+  
+  #remove files
+  msg = paste(Sys.time(),' : Removing data files from EV file ', sep ='')
+  message(msg)
+  
+  while(nbr.of.raw.in.fileset > 0){
+    dataFiles <- destination.fileset[["DataFiles"]]$Item(0)$FileName()
+    
+    rmfile <- destination.fileset[["DataFiles"]]$Item(0)
+    destination.fileset[["DataFiles"]]$Remove(rmfile) 
+    nbr.of.raw.in.fileset = destination.fileset[["DataFiles"]]$Count()
+    
+    msg = paste(Sys.time(),' : Removing ', basename(dataFiles),' from fileset name ', filesetName, sep = '')
+    message(msg)
+  }
+}
+
+#' Finds the time and date of the start and end of a fileset using COM scripting
+#'
+#' This function finds the date and time of the first and last measurement in a fileset using COM scripting
+#' @param EVFile An Echoview file COM object
+#' @param filesetName An Echoview fileset name
+#' @return A list object with two elements $start.time: The date and time of the first measurement in the fileset, and $end.time: The date and time of the last measurement in the fileset
+#' @keywords Echoview COM scripting
+#' @export
+#' @references \url{http://support.echoview.com/WebHelp/Echoview.htm/}
+#' @examples
+#' \dontrun{
+#'EVAppObj=COMCreate('EchoviewCom.EvApplication')
+#'EVFile=EVOpenFile(EVAppObj,'~\\example1.EV')$EVFile
+#'survey.time=EVFindFilesetTime(EVFile=EVFile,filesetName='example')
+#'}
+
+EVFindFilesetTime <- function(EVFile, filesetName){
+  
+  fileset.loc = EVFindFilesetByName(EVFile, filesetName)$filesetObj
+  
+  #find date and time for first measurement
+  start.date <- as.Date(trunc(fileset.loc$StartTime()), origin = "1899-12-30")
+  percent.day.elapsed <- fileset.loc$StartTime() - trunc(fileset.loc$StartTime())
+  seconds.elapsed <- 86400*percent.day.elapsed
+  start.time <- as.POSIXct(seconds.elapsed, origin = start.date, tz = "GMT")
+  
+  #find date and time for last measurement
+  end.date <- as.Date(trunc(fileset.loc$EndTime()), origin = "1899-12-30")
+  percent.day.elapsed <- fileset.loc$EndTime() - trunc(fileset.loc$EndTime())
+  seconds.elapsed <- 86400*percent.day.elapsed
+  end.time <- as.POSIXct(seconds.elapsed, origin = end.date, tz = "GMT")
+  
+  return(list(start.time = start.time, end.time = end.time))
+  
+}
+
+
+#' Creates a new region class using COM scripting
+#' 
+#' This function creates a new region class using COM scripting
+#' @param EVFile An Echoview file COM object
+#' @param className The name of the new Echoview region class
+#' @return A list object with one element. $msg message for processing log
+#' @keywords Echoview COM scripting
+#' @export
+#' @references \url{http://support.echoview.com/WebHelp/Echoview.htm/}
+#' @examples
+#' \dontrun{
+#'EVAppObj=COMCreate('EchoviewCom.EvApplication')
+#'EVFile=EVOpenFile(EVAppObj,'~\\example1.EV')$EVFile
+#'EVAddNewClass(EVFile=EVFile,className='test_class')
+#'}
+
+EVAddNewClass <- function(EVFile, className){
+  
+  
+  for(i in 1:length(name)){
+    
+    add.class <- EVFile[["RegionClasses"]]$Add(className[i])
+    
+    if(add.class == FALSE){
+      msg = paste(Sys.time(), ' : Error: could not add region class', className[i],'to EVFile' , sep = ' ')
+      message(msg)
+    }
+    
+    if(add.class == TRUE){
+      add.class
+      msg = paste(Sys.time(),' : Added region class', className[i], 'to EVFile' , sep = ' ')
+      message(msg)
+    }  
+  }
+}
+
+#' Imports an Echoview region defionitions file (.evr) using COM scripting
+#' 
+#' This function imports a region definitions file (.evr) using COM scripting
+#' @param EVFile An Echoview file COM object
+#' @evrFile An Echoview region definitions file (.evr) path and name
+#' @regionName The name of the Echoview region
+#' @return A list object with one element. $msg message for processing log
+#' @keywords Echoview COM scripting 
+#' @export
+#' @references
+#' @examples
+#' \dontrun{
+#'EVAppObj=COMCreate('EchoviewCom.EvApplication')
+#'EVFile=EVOpenFile(EVAppObj,'~\\example1.EV')$EVFile
+#'EVImportRegionDef(EVFile=EVFile,evrFile='test_region_definitions.evr',regionName='example.region')
+#'}
+
+EVImportRegionDef <- function(EVFile, evrFile, regionName){
+  
+  #check whether a region of that name already exists
+  CheckName <- EVFile[["Regions"]]$FindByName(regionName)
+  if (is.null(CheckName) == TRUE){
+    
+    #import region definitions file
+    EVFile$Import(evrFile)
+    
+    #check whether new region has been added
+    CheckName <- EVFile[["Regions"]]$FindByName(regionName)
+    
+    if(is.null(CheckName) == FALSE){ msg <- paste(Sys.time(),' : Imported region definitions: Region ',regionName,' added',sep='')
+                                     message(msg)
+    } else { msg <- paste(Sys.time(),' : Failed to import region definitions' ,sep='')
+             warning(msg)}
+    
+  } else { msg <- paste(Sys.time(),' : Failed to import region definitions: A region of that name already exists' ,sep='')
+           warning(msg) 
+  }
+}
+
+
+#' Exports Sv data for an acoustic variable by region using COM scripting
+#' 
+#' This function exports the Sv values as a .csv file for an acoustic variable by region using COM scripting
+#' @param EVFile An Echoview file COM object
+#' @param variableName Echoview variable name for which to extract the data
+#' @param regionName Echoview region name for which to extract the data
+#' @param filePath File path and name (.csv) to save the data 
+#' @return A list object with one element. $msg message for processing log
+#' @keywords Echoview COM scripting 
+#' @export
+#' @references
+#' @examples
+#' \dontrun{
+#'EVAppObj=COMCreate('EchoviewCom.EvApplication')
+#'EVFile=EVOpenFile(EVAppObj,'~\\example1.EV')$EVFile
+#'EVExportRegionSv(EVFile=EVFile,variableName='38H Sv',regionName='example.region',filePath='C:/Temp/example_region.csv')
+#'}
+
+EVExportRegionSv <- function(EVFile, variableName, regionName, filePath){
+  
+  acoustic.var <- EVFile[["Variables"]]$FindByName(variableName)
+  ev.region <- EVFile[["Regions"]]$FindByName(regionName)
+  export.data <- acoustic.var$ExportDataForRegion(filePath, ev.region)
+  
+  if(export.data == TRUE){
+    msg <- paste(Sys.time(), ' : Exported data for Region ', regionName, ' in Variable ', variableName, sep = '')
+    message(msg)
+  } else { msg <- paste(Sys.time(), ' : Failed to export data' , sep = '')
+           warning(msg)
+  }
+  
+}
